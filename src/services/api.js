@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // ✅ PRODUCTION CONFIG: Railway deployment URL for CASHA
 // This will be set via environment variable in Railway
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || 'https://casha-backend.up.railway.app';
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || 'https://casha-backend-production.up.railway.app';
 
 // ✅ DEVELOPMENT FALLBACK: Alternative local URL
 const DEV_API_BASE = 'http://localhost:5000';
