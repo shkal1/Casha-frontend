@@ -4,8 +4,8 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "buildCommand": "npm run build",
-    "outputDirectory": "web-build",
+    "buildCommand": "expo export --platform web",
+    "outputDirectory": "dist",
     "restartPolicyType": "ON_FAILURE"
   }
 }
