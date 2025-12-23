@@ -16,6 +16,7 @@ import {
 } from 'react-native-paper';
 import { useAuth } from '../src/contexts/AuthContext';
 import { useWallet } from '../src/contexts/WalletContext';
+import { PPI_SEND } from '../src/services/ppi-language'; // ✅ ADDED PPI IMPORT
 
 export default function SendScreen() {
   const router = useRouter();
@@ -75,56 +76,70 @@ export default function SendScreen() {
 
     setSending(true);
     try {
-      console.log('🔄 Sending transaction:', { 
+      console.log('🔄 Creating PPI Send operation:', { 
         from: user?.userId, 
         to: recipient, 
         amount: sendAmount,
         note: note 
       });
 
-      // Make real API call to backend
+      // ✅ UPDATED: Use PPI internally instead of direct API call
       const result = await sendTransaction({
         from_user: user?.userId,
         to_user: recipient,
         amount: sendAmount,
-        note: note
+        note: note,
+        // ✅ ADDED: PPI metadata for backend
+        ppi_operation: 'SEND',
+        ppi_compiled: PPI_SEND(sendAmount)
+          .TO(recipient)
+          .WITH_MESSAGE(note || `Payment from ${user?.userId}`)
+          .compile('casha-dag')
       });
 
-      console.log('✅ Transaction successful:', result);
+      console.log('✅ PPI Transaction successful:', result);
       
-      // ✅ ENHANCED: Better success message with actual fee from backend
-      Alert.alert('Success!', 
+      // ✅ FIXED: Show success message AND auto-navigate to home tab
+      console.log('✅ Transaction successful, showing message and auto-navigating to home...');
+
+      // Clear the form immediately
+      setAmount('');
+      setRecipient('');
+      setNote('');
+
+      // Show success message that auto-dismisses and navigates
+      Alert.alert(
+        'Success!', 
         `Sent ${formatCurrency(sendAmount)} to ${recipient}\n\nTransaction ID: ${result.transaction_id?.substring(0, 16)}...\nFee: ${formatCurrency(result.fee)}`,
         [
           { 
-            text: 'View History', 
-            onPress: () => router.push('/history') 
-          },
-          { 
-            text: 'Send More', 
-            onPress: () => {
-              // Clear form but keep recipient
-              setAmount('');
-              setNote('');
-            }
-          },
-          { 
             text: 'OK', 
             onPress: () => {
-              // Clear entire form
-              setAmount('');
-              setRecipient('');
-              setNote('');
+              // ✅ FIXED: Navigate to home tab (dashboard)
+              router.push('/dashboard');
             }
           }
-        ]
+        ],
+        {
+          // Auto-dismiss after 3 seconds and navigate even if user doesn't click
+          onDismiss: () => {
+            // ✅ FIXED: Navigate to home tab (dashboard)
+            router.push('/dashboard');
+          }
+        }
       );
 
       // ✅ ADDED: Auto-refresh wallet data
       await refreshData();
 
+      // ✅ ADDED: Backup auto-navigation after 4 seconds (in case Alert fails to auto-dismiss)
+      setTimeout(() => {
+        // ✅ FIXED: Navigate to home tab (dashboard)
+        router.push('/dashboard');
+      }, 4000);
+
     } catch (error: any) {
-      console.error('❌ Transaction failed:', error);
+      console.error('❌ PPI Transaction failed:', error);
       
       // ✅ ENHANCED: Better error messages
       let errorMessage = 'Failed to send transaction';

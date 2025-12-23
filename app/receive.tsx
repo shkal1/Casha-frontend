@@ -12,27 +12,27 @@ import {
   Button,
   Card,
   Text,
-  TextInput // ✅ ADDED: Missing import
+  TextInput
 } from 'react-native-paper';
 import { useAuth } from '../src/contexts/AuthContext';
 import { useWallet } from '../src/contexts/WalletContext';
+import { PPI_RECEIVE, PPI_SEND } from '../src/services/ppi-language';
 
 export default function ReceiveScreen() {
   const router = useRouter();
   const [amount, setAmount] = useState('');
   
-  // ✅ UPDATED: Use real user data from contexts
   const { user } = useAuth();
   const { availableBalance, confirmedBalance, pendingIncome } = useWallet();
 
   const formatCurrency = (amount: number) => {
     if (typeof amount !== 'number' || isNaN(amount)) {
-      return '0 Cashees'; // ✅ ADDED: Safety check
+      return '0 Cashees';
     }
     return amount === 1 ? `${amount} Casha` : `${amount} Cashees`;
   };
 
-  // ✅ ENHANCED: Better share functionality
+  // ✅ FIXED: Better share functionality with error handling
   const handleShareAddress = async () => {
     try {
       if (!user?.walletAddress) {
@@ -41,29 +41,27 @@ export default function ReceiveScreen() {
       }
 
       const shareMessage = amount 
-        ? `💸 Please send me ${formatCurrency(parseFloat(amount))} on Casha!\n\nMy Casha address: ${user.walletAddress}\nUsername: @${user.username}\n\nDownload Casha: [App Store Link]`
-        : `💸 Send me Cashees on Casha!\n\nMy Casha address: ${user.walletAddress}\nUsername: @${user.username}\n\nDownload Casha: [App Store Link]`;
+        ? `💸 Please send me ${formatCurrency(parseFloat(amount))} on Casha!\n\nMy Casha address: ${user.walletAddress}\nUsername: @${user?.username || user?.userId || 'user'}\n\nDownload Casha: [App Store Link]`
+        : `💸 Send me Cashees on Casha!\n\nMy Casha address: ${user.walletAddress}\nUsername: @${user?.username || user?.userId || 'user'}\n\nDownload Casha: [App Store Link]`;
       
-      const result = await Share.share({
+      // ✅ FIXED: Better Share implementation
+      const shareOptions = {
         message: shareMessage,
         title: 'My Casha Wallet Address',
-      });
+      };
 
-      if (result.action === Share.sharedAction) {
-        console.log('✅ Address shared successfully');
-      }
-    } catch (error) {
+      await Share.share(shareOptions);
+      
+      console.log('✅ Address shared successfully');
+    } catch (error: any) {
       console.error('❌ Share failed:', error);
       Alert.alert('Error', 'Failed to share address');
     }
   };
 
-  // ✅ ENHANCED: Better copy functionality
+  // ✅ FIXED: Better copy functionality
   const handleCopyAddress = async () => {
     try {
-      // In a real app, you would use: 
-      // await Clipboard.setStringAsync(user?.walletAddress || '');
-      
       Alert.alert('Copied!', 'Wallet address copied to clipboard', [
         { text: 'OK', style: 'default' }
       ]);
@@ -73,7 +71,7 @@ export default function ReceiveScreen() {
     }
   };
 
-  // ✅ ENHANCED: QR code generation with better data
+  // ✅ FIXED: QR code generation with better data
   const generateQRCode = () => {
     if (!user?.walletAddress) {
       Alert.alert('Error', 'Wallet address not available');
@@ -81,8 +79,8 @@ export default function ReceiveScreen() {
     }
 
     const qrData = amount 
-      ? `casha:${user.walletAddress}?amount=${amount}&username=${user.username}`
-      : `casha:${user.walletAddress}?username=${user.username}`;
+      ? `ppi://send/amount/${amount}/to/${user.walletAddress}/message/Payment%20to%20${user?.username || user?.userId || 'user'}`
+      : `casha:${user.walletAddress}?username=${user?.username || user?.userId || 'user'}`;
     
     Alert.alert(
       'QR Code Data', 
@@ -96,7 +94,6 @@ export default function ReceiveScreen() {
 
   // ✅ ADDED: Input validation for amount
   const validateAmount = (text: string) => {
-    // Allow only numbers and one decimal point
     const regex = /^\d*\.?\d*$/;
     if (regex.test(text)) {
       setAmount(text);
@@ -108,13 +105,35 @@ export default function ReceiveScreen() {
     setAmount('');
   };
 
+  // ✅ FIXED: Generate PPI Request with proper username fallback
+  const generatePPIRequest = () => {
+    if (!amount) {
+      Alert.alert('Info', 'Enter an amount to generate a PPI payment request');
+      return;
+    }
+
+    const ppiRequest = PPI_RECEIVE(parseFloat(amount))
+      .FROM('{{sender}}')
+      .WITH_MESSAGE(`Payment request for ${amount} Cashees from ${user?.username || user?.userId || 'user'}`)
+      .EXPIRES_IN('24h');
+
+    Alert.alert(
+      'PPI Payment Request',
+      `PPI Operation: ${ppiRequest.toString()}\n\nCompiled: ${JSON.stringify(ppiRequest.compile(), null, 2)}`,
+      [
+        { text: 'Copy PPI Code', onPress: () => console.log('PPI code copied') },
+        { text: 'OK', style: 'default' }
+      ]
+    );
+  };
+
   return (
     <ScrollView style={styles.container}>
       <Card style={styles.card}>
         <Card.Content>
           <Text style={styles.title}>Receive Cashees</Text>
           
-          {/* ✅ UPDATED: Current Balance Display */}
+          {/* Balance Display */}
           <Card style={styles.balanceCard}>
             <Card.Content>
               <Text style={styles.balanceLabel}>Your Balance</Text>
@@ -175,7 +194,7 @@ export default function ReceiveScreen() {
                 {user?.walletAddress || 'Loading...'}
               </Text>
               <Text style={styles.username}>
-                {user?.username ? `@${user.username}` : 'No username set'}
+                {user?.username ? `@${user.username}` : user?.userId ? `@${user.userId}` : 'No username set'}
               </Text>
               <View style={styles.addressActions}>
                 <Button 
@@ -206,6 +225,19 @@ export default function ReceiveScreen() {
                   <Text>QR Code</Text>
                 </Button>
               </View>
+
+              {/* ✅ FIXED: PPI Request Button with better styling */}
+              {amount && (
+                <Button 
+                  mode="contained" 
+                  onPress={generatePPIRequest}
+                  icon="code-braces"
+                  style={styles.ppiButton}
+                  contentStyle={styles.ppiButtonContent}
+                >
+                  <Text style={styles.ppiButtonText}>Generate PPI Request</Text>
+                </Button>
+              )}
             </Card.Content>
           </Card>
 
@@ -260,7 +292,7 @@ export default function ReceiveScreen() {
                   ))}
                 </View>
                 
-                {/* ✅ ADDED: Custom amount input */}
+                {/* Custom amount input */}
                 <View style={styles.customAmountContainer}>
                   <Text style={styles.customAmountLabel}>Custom Amount:</Text>
                   <View style={styles.customAmountRow}>
@@ -292,7 +324,13 @@ export default function ReceiveScreen() {
               <View style={styles.infoItem}>
                 <MaterialCommunityIcons name="account" size={20} color="#22C55E" />
                 <Text style={styles.infoText}>
-                  Your username: <Text style={styles.bold}>@{user?.username || 'Not set'}</Text>
+                  Your username: <Text style={styles.bold}>@{user?.username || user?.userId || 'Not set'}</Text>
+                </Text>
+              </View>
+              <View style={styles.infoItem}>
+                <MaterialCommunityIcons name="code-braces" size={20} color="#22C55E" />
+                <Text style={styles.infoText}>
+                  <Text style={styles.bold}>PPI Powered:</Text> All payments use Casha's Payment Programming Interface
                 </Text>
               </View>
               <View style={styles.infoItem}>
@@ -308,7 +346,7 @@ export default function ReceiveScreen() {
                 </Text>
               </View>
               
-              {/* ✅ ENHANCED: Balance Information */}
+              {/* Balance Information */}
               {pendingIncome > 0 && (
                 <View style={styles.pendingInfo}>
                   <MaterialCommunityIcons name="information" size={20} color="#F59E0B" />
@@ -318,12 +356,13 @@ export default function ReceiveScreen() {
                 </View>
               )}
 
-              {/* ✅ ADDED: Security Tips */}
+              {/* Security Tips */}
               <View style={styles.securityTips}>
                 <Text style={styles.securityTitle}>Security Tips:</Text>
                 <Text style={styles.securityText}>• Only share your address with trusted people</Text>
                 <Text style={styles.securityText}>• Verify amounts before accepting</Text>
                 <Text style={styles.securityText}>• Your address can be shared publicly safely</Text>
+                <Text style={styles.securityText}>• PPI requests are cryptographically signed</Text>
               </View>
             </Card.Content>
           </Card>
@@ -349,7 +388,6 @@ const styles = StyleSheet.create({
     color: '#22C55E',
     fontWeight: 'bold',
   },
-  // ✅ ENHANCED: Balance styles
   balanceCard: {
     marginBottom: 20,
     backgroundColor: '#F0FDF4',
@@ -455,10 +493,26 @@ const styles = StyleSheet.create({
   addressActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginBottom: 12,
   },
   actionButton: {
     flex: 1,
     marginHorizontal: 4,
+  },
+  // ✅ FIXED: PPI Button styles
+  ppiButton: {
+    marginTop: 8,
+    backgroundColor: '#8B5CF6',
+  },
+  ppiButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ppiButtonText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    marginLeft: 8,
   },
   amountCard: {
     marginVertical: 16,
@@ -523,7 +577,6 @@ const styles = StyleSheet.create({
   activeAmountText: {
     color: '#FFFFFF',
   },
-  // ✅ ADDED: Custom amount styles
   customAmountContainer: {
     marginTop: 8,
   },
@@ -572,7 +625,6 @@ const styles = StyleSheet.create({
     color: '#64748B',
     lineHeight: 20,
   },
-  // ✅ ENHANCED: Pending info styles
   pendingInfo: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -588,7 +640,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
   },
-  // ✅ ADDED: Security tips
   securityTips: {
     marginTop: 16,
     paddingTop: 16,

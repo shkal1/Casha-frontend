@@ -1,38 +1,24 @@
 import axios from 'axios';
 
-// ✅ PRODUCTION CONFIG: Railway deployment URL for CASHA
-// This will be set via environment variable in Railway
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || 'https://casha-backend-production.up.railway.app';
-
-// ✅ DEVELOPMENT FALLBACK: Alternative local URL
+// ✅ TEMPORARY FIX: FORCE LOCAL BACKEND FOR TESTING
+const API_BASE = 'http://localhost:5000'; // ← CHANGED: Always use local
 const DEV_API_BASE = 'http://localhost:5000';
 
-// ✅ SMART URL SELECTION: Auto-detect environment
+// ✅ SIMPLE URL SELECTION: Always use local for now
 const getApiBase = () => {
-  // If we have an explicit production URL, use it
-  if (process.env.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL;
-  }
-  
-  // If we're in production mode, use production URL
-  if (process.env.NODE_ENV === 'production') {
-    return API_BASE;
-  }
-  
-  // Development: Try production first, then fallback to local
-  console.log('🌍 Development mode: Using production URL with local fallback');
-  return API_BASE;
+  console.log('🌍 DEVELOPMENT MODE: Using LOCAL backend');
+  return 'http://localhost:5000'; // ← CHANGED: Always return local
 };
 
 const api = axios.create({
   baseURL: getApiBase(),
-  timeout: 15000, // Increased for production
+  timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
   }
 });
 
-// ✅ ENHANCED ERROR HANDLING WITH AUTO-FALLBACK
+// ✅ ENHANCED ERROR HANDLING
 api.interceptors.response.use(
   (response) => {
     console.log('✅ API Success:', response.config.url);
@@ -44,25 +30,6 @@ api.interceptors.response.use(
       status: error.response?.status,
       message: error.message
     });
-    
-    // Auto-retry with development URL if production fails in development
-    if ((error.code === 'ECONNREFUSED' || error.response?.status >= 500) && 
-        process.env.NODE_ENV !== 'production') {
-      console.log('🔄 Production API unavailable, switching to development URL...');
-      api.defaults.baseURL = DEV_API_BASE;
-      
-      // Retry the request with development URL
-      try {
-        const retryResponse = await axios({
-          ...error.config,
-          baseURL: DEV_API_BASE
-        });
-        console.log('✅ Retry successful with development URL');
-        return retryResponse;
-      } catch (retryError) {
-        console.error('❌ Development URL also failed');
-      }
-    }
     
     return Promise.reject(error);
   }
@@ -82,31 +49,10 @@ const checkConnection = async () => {
       url: api.defaults.baseURL 
     };
   } catch (error) {
-    console.log('❌ API Connection failed, trying development URL...');
-    
-    // Try development URL as fallback
-    if (process.env.NODE_ENV !== 'production') {
-      api.defaults.baseURL = DEV_API_BASE;
-      try {
-        const devResponse = await api.get('/health');
-        return { 
-          connected: true, 
-          environment: 'development', 
-          fallback: true,
-          url: api.defaults.baseURL
-        };
-      } catch (devError) {
-        return { 
-          connected: false, 
-          error: 'Cannot connect to any server',
-          url: api.defaults.baseURL
-        };
-      }
-    }
-    
+    console.log('❌ API Connection failed to local backend');
     return { 
       connected: false, 
-      error: 'Production server unavailable',
+      error: 'Cannot connect to local server',
       url: api.defaults.baseURL
     };
   }
@@ -245,13 +191,102 @@ const getServerInfo = async () => {
   }
 };
 
+// ✅ PPI PROTOCOL METHODS
+const parsePPIURL = async (ppiUrl) => {
+  try {
+    console.log('🔗 Parsing PPI URL:', ppiUrl);
+    const response = await api.post('/v1/protocol/parse', {
+      ppi_url: ppiUrl
+    });
+    console.log('✅ PPI URL parsed successfully');
+    return response.data;
+  } catch (error) {
+    console.error('❌ PPI URL parse error:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.error || 'Failed to parse PPI URL');
+  }
+};
+
+const generatePPIURL = async (operationType, parameters) => {
+  try {
+    console.log('🔗 Generating PPI URL for:', operationType, parameters);
+    const response = await api.post('/v1/protocol/generate', {
+      operation_type: operationType,
+      parameters: parameters,
+      target: 'casha-dag'
+    });
+    console.log('✅ PPI URL generated:', response.data.ppi_url);
+    return response.data;
+  } catch (error) {
+    console.error('❌ PPI URL generation error:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.error || 'Failed to generate PPI URL');
+  }
+};
+
+const executePPIOperation = async (compiledOperation, userId) => {
+  try {
+    console.log('🚀 Executing PPI operation for user:', userId);
+    const response = await api.post('/v1/execute', {
+      compiled_operation: compiledOperation,
+      user_id: userId
+    });
+    console.log('✅ PPI operation executed successfully');
+    return response.data;
+  } catch (error) {
+    console.error('❌ PPI operation execution error:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.error || 'Failed to execute PPI operation');
+  }
+};
+
+const quickExecutePPIURL = async (ppiUrl, userId) => {
+  try {
+    console.log('⚡ Quick executing PPI URL:', ppiUrl);
+    const response = await api.post('/v1/protocol/execute', {
+      ppi_url: ppiUrl,
+      user_id: userId
+    });
+    console.log('✅ Quick PPI execution successful');
+    return response.data;
+  } catch (error) {
+    console.error('❌ Quick PPI execution error:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.error || 'Failed to quick execute PPI URL');
+  }
+};
+
+const getPPIExamples = async () => {
+  try {
+    const response = await api.get('/v1/protocol/examples');
+    console.log('✅ PPI examples fetched');
+    return response.data;
+  } catch (error) {
+    console.error('❌ PPI examples error:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.error || 'Failed to fetch PPI examples');
+  }
+};
+
+// ✅ PPI Operation Creation Methods
+const createPPISend = async (amount, to, message = '') => {
+  try {
+    const response = await api.post('/v1/ppi/send', {
+      amount: amount,
+      to: to,
+      message: message,
+      target: 'casha-dag'
+    });
+    console.log('✅ PPI Send operation created');
+    return response.data;
+  } catch (error) {
+    console.error('❌ PPI Send creation error:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.error || 'Failed to create PPI Send operation');
+  }
+};
+
 // ✅ ENVIRONMENT INFO - Log on import
 console.log('🚀 Casha Wallet API Configuration:');
 console.log('   Base URL:', api.defaults.baseURL);
-console.log('   Environment:', process.env.NODE_ENV || 'development');
-console.log('   Production URL:', API_BASE);
+console.log('   Environment: development (FORCED LOCAL)');
+console.log('   Production URL: DISABLED FOR TESTING');
 console.log('   Development URL:', DEV_API_BASE);
-console.log('   EXPO_PUBLIC_API_URL:', process.env.EXPO_PUBLIC_API_URL || 'Not set');
+console.log('   EXPO_PUBLIC_API_URL: OVERRIDDEN FOR LOCAL TESTING');
 
 // ✅ FIXED: CONSISTENT EXPORTS - BOTH NAMED AND DEFAULT
 export const walletAPI = {
@@ -265,16 +300,21 @@ export const walletAPI = {
   getDAGTransactions,
   getRecentTransactions,
   debugBalance,
-  getServerInfo
+  getServerInfo,
+  // PPI Protocol Methods
+  parsePPIURL,
+  generatePPIURL,
+  executePPIOperation,
+  quickExecutePPIURL,
+  getPPIExamples,
+  createPPISend
 };
 
 // Also export as default for flexibility
 export default walletAPI;
 
 // ✅ Auto-check connection on app start in development
-if (process.env.NODE_ENV !== 'production') {
-  setTimeout(async () => {
-    const connection = await checkConnection();
-    console.log('🔌 Initial Connection Check:', connection);
-  }, 1000);
-}
+setTimeout(async () => {
+  const connection = await checkConnection();
+  console.log('🔌 Initial Connection Check:', connection);
+}, 1000);
