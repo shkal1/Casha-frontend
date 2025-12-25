@@ -1,24 +1,38 @@
 import axios from 'axios';
 
-// ✅ TEMPORARY FIX: FORCE LOCAL BACKEND FOR TESTING
-const API_BASE = 'http://localhost:5000'; // ← CHANGED: Always use local
+// ✅ PRODUCTION CONFIG: Railway deployment URL for CASHA
+// This will be set via environment variable in Railway
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || 'https://casha-backend-production.up.railway.app';
+
+// ✅ DEVELOPMENT FALLBACK: Alternative local URL
 const DEV_API_BASE = 'http://localhost:5000';
 
-// ✅ SIMPLE URL SELECTION: Always use local for now
+// ✅ SMART URL SELECTION: Auto-detect environment
 const getApiBase = () => {
-  console.log('🌍 DEVELOPMENT MODE: Using LOCAL backend');
-  return 'http://localhost:5000'; // ← CHANGED: Always return local
+  // If we have an explicit production URL, use it
+  if (process.env.EXPO_PUBLIC_API_URL) {
+    return process.env.EXPO_PUBLIC_API_URL;
+  }
+  
+  // If we're in production mode, use production URL
+  if (process.env.NODE_ENV === 'production') {
+    return API_BASE;
+  }
+  
+  // Development: ALWAYS use local backend for development
+  console.log('🌍 Development mode: Using LOCAL backend');
+  return DEV_API_BASE; // ← CHANGED: Always use local in development
 };
 
 const api = axios.create({
   baseURL: getApiBase(),
-  timeout: 15000,
+  timeout: 15000, // Increased for production
   headers: {
     'Content-Type': 'application/json',
   }
 });
 
-// ✅ ENHANCED ERROR HANDLING
+// ✅ ENHANCED ERROR HANDLING WITH AUTO-FALLBACK
 api.interceptors.response.use(
   (response) => {
     console.log('✅ API Success:', response.config.url);
@@ -30,6 +44,25 @@ api.interceptors.response.use(
       status: error.response?.status,
       message: error.message
     });
+    
+    // Auto-retry with development URL if production fails in development
+    if ((error.code === 'ECONNREFUSED' || error.response?.status >= 500) && 
+        process.env.NODE_ENV !== 'production') {
+      console.log('🔄 Production API unavailable, switching to development URL...');
+      api.defaults.baseURL = DEV_API_BASE;
+      
+      // Retry the request with development URL
+      try {
+        const retryResponse = await axios({
+          ...error.config,
+          baseURL: DEV_API_BASE
+        });
+        console.log('✅ Retry successful with development URL');
+        return retryResponse;
+      } catch (retryError) {
+        console.error('❌ Development URL also failed');
+      }
+    }
     
     return Promise.reject(error);
   }
@@ -49,10 +82,31 @@ const checkConnection = async () => {
       url: api.defaults.baseURL 
     };
   } catch (error) {
-    console.log('❌ API Connection failed to local backend');
+    console.log('❌ API Connection failed, trying development URL...');
+    
+    // Try development URL as fallback
+    if (process.env.NODE_ENV !== 'production') {
+      api.defaults.baseURL = DEV_API_BASE;
+      try {
+        const devResponse = await api.get('/health');
+        return { 
+          connected: true, 
+          environment: 'development', 
+          fallback: true,
+          url: api.defaults.baseURL
+        };
+      } catch (devError) {
+        return { 
+          connected: false, 
+          error: 'Cannot connect to any server',
+          url: api.defaults.baseURL
+        };
+      }
+    }
+    
     return { 
       connected: false, 
-      error: 'Cannot connect to local server',
+      error: 'Production server unavailable',
       url: api.defaults.baseURL
     };
   }
@@ -283,10 +337,10 @@ const createPPISend = async (amount, to, message = '') => {
 // ✅ ENVIRONMENT INFO - Log on import
 console.log('🚀 Casha Wallet API Configuration:');
 console.log('   Base URL:', api.defaults.baseURL);
-console.log('   Environment: development (FORCED LOCAL)');
-console.log('   Production URL: DISABLED FOR TESTING');
+console.log('   Environment:', process.env.NODE_ENV || 'development');
+console.log('   Production URL:', API_BASE);
 console.log('   Development URL:', DEV_API_BASE);
-console.log('   EXPO_PUBLIC_API_URL: OVERRIDDEN FOR LOCAL TESTING');
+console.log('   EXPO_PUBLIC_API_URL:', process.env.EXPO_PUBLIC_API_URL || 'Not set');
 
 // ✅ FIXED: CONSISTENT EXPORTS - BOTH NAMED AND DEFAULT
 export const walletAPI = {
@@ -314,7 +368,9 @@ export const walletAPI = {
 export default walletAPI;
 
 // ✅ Auto-check connection on app start in development
-setTimeout(async () => {
-  const connection = await checkConnection();
-  console.log('🔌 Initial Connection Check:', connection);
-}, 1000);
+if (process.env.NODE_ENV !== 'production') {
+  setTimeout(async () => {
+    const connection = await checkConnection();
+    console.log('🔌 Initial Connection Check:', connection);
+  }, 1000);
+}
