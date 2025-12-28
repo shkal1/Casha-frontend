@@ -1,112 +1,60 @@
 import axios from 'axios';
 
-// ✅ PRODUCTION CONFIG: Railway deployment URL for CASHA
-// This will be set via environment variable in Railway
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || 'https://casha-backend-production.up.railway.app';
+// ✅ RAILWAY PRODUCTION CONFIG: Always use Railway URL
+const API_BASE = 'https://casha-backend-production.up.railway.app';
 
-// ✅ DEVELOPMENT FALLBACK: Alternative local URL
-const DEV_API_BASE = 'http://localhost:5000';
-
-// ✅ SMART URL SELECTION: Auto-detect environment
+// ✅ SIMPLE CONFIG: Always use production URL
 const getApiBase = () => {
-  // If we have an explicit production URL, use it
-  if (process.env.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL;
-  }
-  
-  // If we're in production mode, use production URL
-  if (process.env.NODE_ENV === 'production') {
-    return API_BASE;
-  }
-  
-  // Development: ALWAYS use local backend for development
-  console.log('🌍 Development mode: Using LOCAL backend');
-  return DEV_API_BASE; // ← CHANGED: Always use local in development
+  console.log('🚀 Using RAILWAY PRODUCTION BACKEND');
+  return API_BASE;
 };
 
 const api = axios.create({
   baseURL: getApiBase(),
-  timeout: 15000, // Increased for production
+  timeout: 30000, // Increased timeout for production
   headers: {
     'Content-Type': 'application/json',
   }
 });
 
-// ✅ ENHANCED ERROR HANDLING WITH AUTO-FALLBACK
+// ✅ ENHANCED ERROR HANDLING FOR PRODUCTION
 api.interceptors.response.use(
   (response) => {
-    console.log('✅ API Success:', response.config.url);
+    console.log('✅ API Success:', response.config.url, response.status);
     return response;
   },
   async (error) => {
     console.error('❌ API Error:', {
       url: error.config?.url,
       status: error.response?.status,
-      message: error.message
+      message: error.message,
+      code: error.code
     });
-    
-    // Auto-retry with development URL if production fails in development
-    if ((error.code === 'ECONNREFUSED' || error.response?.status >= 500) && 
-        process.env.NODE_ENV !== 'production') {
-      console.log('🔄 Production API unavailable, switching to development URL...');
-      api.defaults.baseURL = DEV_API_BASE;
-      
-      // Retry the request with development URL
-      try {
-        const retryResponse = await axios({
-          ...error.config,
-          baseURL: DEV_API_BASE
-        });
-        console.log('✅ Retry successful with development URL');
-        return retryResponse;
-      } catch (retryError) {
-        console.error('❌ Development URL also failed');
-      }
-    }
     
     return Promise.reject(error);
   }
 );
 
-// ✅ ALL API FUNCTIONS DEFINED
+// ✅ ALL API FUNCTIONS WITH PRODUCTION OPTIMIZATION
 const checkConnection = async () => {
   try {
     const response = await api.get('/health');
     console.log('✅ API Connection successful:', {
       environment: response.data.environment,
-      url: api.defaults.baseURL
+      url: api.defaults.baseURL,
+      status: response.data.status
     });
     return { 
       connected: true, 
       environment: response.data.environment,
-      url: api.defaults.baseURL 
+      url: api.defaults.baseURL,
+      users_count: response.data.users_count || 0
     };
   } catch (error) {
-    console.log('❌ API Connection failed, trying development URL...');
-    
-    // Try development URL as fallback
-    if (process.env.NODE_ENV !== 'production') {
-      api.defaults.baseURL = DEV_API_BASE;
-      try {
-        const devResponse = await api.get('/health');
-        return { 
-          connected: true, 
-          environment: 'development', 
-          fallback: true,
-          url: api.defaults.baseURL
-        };
-      } catch (devError) {
-        return { 
-          connected: false, 
-          error: 'Cannot connect to any server',
-          url: api.defaults.baseURL
-        };
-      }
-    }
-    
+    console.log('❌ API Connection failed to Railway backend');
     return { 
       connected: false, 
-      error: 'Production server unavailable',
+      error: 'Cannot connect to Railway server',
       url: api.defaults.baseURL
     };
   }
@@ -114,40 +62,39 @@ const checkConnection = async () => {
 
 const registerUser = async (userData) => {
   try {
+    console.log('🔄 Registering user on Railway:', userData.user_id);
     const response = await api.post('/register', userData);
-    console.log('✅ User registration successful');
+    console.log('✅ User registration successful on Railway');
     return response.data;
   } catch (error) {
-    console.error('❌ Registration error:', error.response?.data || error.message);
-    throw new Error(error.response?.data?.error || 'Registration failed');
+    console.error('❌ Registration error on Railway:', {
+      status: error.response?.status,
+      data: error.response?.data,
+      message: error.message
+    });
+    throw new Error(error.response?.data?.error || 'Registration failed on Railway server');
   }
 };
 
 const getBalance = async (userId) => {
   try {
     const response = await api.get(`/debug/user/${userId}`);
-    console.log('✅ Balance fetch successful:', response.data.balance);
+    console.log('✅ Balance fetch successful from Railway');
     return response.data;
   } catch (error) {
-    console.error('❌ Balance fetch error:', error.response?.data || error.message);
-    throw new Error(error.response?.data?.error || 'Failed to fetch balance');
+    console.error('❌ Balance fetch error from Railway:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.error || 'Failed to fetch balance from Railway');
   }
 };
 
-// ✅ ENHANCED: Pending balance endpoint for two-balance system
 const getPendingBalance = async (userId) => {
   try {
     const response = await api.get(`/user/pending-balance/${userId}`);
-    console.log('✅ Pending balance fetched:', {
-      available: response.data.available_balance,
-      pending: response.data.pending_income,
-      confirmed: response.data.confirmed_balance
-    });
+    console.log('✅ Pending balance fetched from Railway');
     return response.data;
   } catch (error) {
     console.error('❌ Pending balance fetch error:', error.response?.data || error.message);
-    // Enhanced fallback to regular balance
-    console.log('🔄 Falling back to regular balance endpoint...');
+    // Fallback to regular balance
     try {
       const fallbackResponse = await api.get(`/debug/user/${userId}`);
       return {
@@ -158,89 +105,86 @@ const getPendingBalance = async (userId) => {
         status: 'success_fallback'
       };
     } catch (fallbackError) {
-      throw new Error('Both balance endpoints failed');
+      throw new Error('Both balance endpoints failed on Railway');
     }
   }
 };
 
 const sendTransaction = async (transactionData) => {
   try {
-    console.log('🔄 Sending transaction:', transactionData);
+    console.log('🔄 Sending transaction via Railway:', transactionData);
     const response = await api.post('/transaction', {
       transaction: transactionData
     });
-    console.log('✅ Transaction successful:', response.data.transaction_id);
+    console.log('✅ Transaction successful on Railway');
     return response.data;
   } catch (error) {
-    console.error('❌ Transaction error:', error.response?.data || error.message);
-    throw new Error(error.response?.data?.error || 'Transaction failed');
+    console.error('❌ Transaction error on Railway:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.error || 'Transaction failed on Railway');
   }
 };
 
 const getTransactionHistory = async (userId) => {
   try {
     const response = await api.get(`/transactions/user/${userId}`);
-    console.log('✅ Transaction history fetched:', response.data.transactions?.length, 'transactions');
+    console.log('✅ Transaction history fetched from Railway');
     return response.data;
   } catch (error) {
-    console.error('❌ Transaction history error:', error.response?.data || error.message);
-    throw new Error(error.response?.data?.error || 'Failed to fetch transaction history');
+    console.error('❌ Transaction history error on Railway:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.error || 'Failed to fetch transaction history from Railway');
   }
 };
 
-// ✅ ENHANCED: DAG endpoints with better error handling
 const getDAGInfo = async () => {
   try {
     const response = await api.get('/dag/info');
-    console.log('✅ DAG info fetched');
+    console.log('✅ DAG info fetched from Railway');
     return response.data;
   } catch (error) {
-    console.error('❌ DAG info error:', error.response?.data || error.message);
-    throw new Error(error.response?.data?.error || 'Failed to fetch DAG info');
+    console.error('❌ DAG info error on Railway:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.error || 'Failed to fetch DAG info from Railway');
   }
 };
 
 const getDAGTransactions = async () => {
   try {
     const response = await api.get('/dag/transactions');
-    console.log('✅ DAG transactions fetched:', response.data.transactions?.length, 'transactions');
+    console.log('✅ DAG transactions fetched from Railway');
     return response.data;
   } catch (error) {
-    console.error('❌ DAG transactions error:', error.response?.data || error.message);
-    throw new Error(error.response?.data?.error || 'Failed to fetch DAG transactions');
+    console.error('❌ DAG transactions error on Railway:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.error || 'Failed to fetch DAG transactions from Railway');
   }
 };
 
 const getRecentTransactions = async () => {
   try {
     const response = await api.get('/transactions/recent');
-    console.log('✅ Recent transactions fetched:', response.data.recent_transactions?.length, 'transactions');
+    console.log('✅ Recent transactions fetched from Railway');
     return response.data;
   } catch (error) {
-    console.error('❌ Recent transactions error:', error.response?.data || error.message);
-    throw new Error(error.response?.data?.error || 'Failed to fetch recent transactions');
+    console.error('❌ Recent transactions error on Railway:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.error || 'Failed to fetch recent transactions from Railway');
   }
 };
 
-// ✅ NEW: Debug endpoint for development
 const debugBalance = async (userId) => {
   try {
     const response = await api.get(`/debug/balance/${userId}`);
-    console.log('🔧 Debug balance:', response.data);
+    console.log('🔧 Debug balance from Railway');
     return response.data;
   } catch (error) {
-    console.error('❌ Debug balance error:', error.response?.data || error.message);
+    console.error('❌ Debug balance error on Railway:', error.response?.data || error.message);
     throw error;
   }
 };
 
-// ✅ NEW: Get server info
 const getServerInfo = async () => {
   try {
     const response = await api.get('/');
     return response.data;
   } catch (error) {
-    console.error('❌ Server info error:', error.response?.data || error.message);
+    console.error('❌ Server info error on Railway:', error.response?.data || error.message);
     throw error;
   }
 };
@@ -248,76 +192,75 @@ const getServerInfo = async () => {
 // ✅ PPI PROTOCOL METHODS
 const parsePPIURL = async (ppiUrl) => {
   try {
-    console.log('🔗 Parsing PPI URL:', ppiUrl);
+    console.log('🔗 Parsing PPI URL on Railway');
     const response = await api.post('/v1/protocol/parse', {
       ppi_url: ppiUrl
     });
-    console.log('✅ PPI URL parsed successfully');
+    console.log('✅ PPI URL parsed successfully on Railway');
     return response.data;
   } catch (error) {
-    console.error('❌ PPI URL parse error:', error.response?.data || error.message);
-    throw new Error(error.response?.data?.error || 'Failed to parse PPI URL');
+    console.error('❌ PPI URL parse error on Railway:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.error || 'Failed to parse PPI URL on Railway');
   }
 };
 
 const generatePPIURL = async (operationType, parameters) => {
   try {
-    console.log('🔗 Generating PPI URL for:', operationType, parameters);
+    console.log('🔗 Generating PPI URL on Railway');
     const response = await api.post('/v1/protocol/generate', {
       operation_type: operationType,
       parameters: parameters,
       target: 'casha-dag'
     });
-    console.log('✅ PPI URL generated:', response.data.ppi_url);
+    console.log('✅ PPI URL generated on Railway');
     return response.data;
   } catch (error) {
-    console.error('❌ PPI URL generation error:', error.response?.data || error.message);
-    throw new Error(error.response?.data?.error || 'Failed to generate PPI URL');
+    console.error('❌ PPI URL generation error on Railway:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.error || 'Failed to generate PPI URL on Railway');
   }
 };
 
 const executePPIOperation = async (compiledOperation, userId) => {
   try {
-    console.log('🚀 Executing PPI operation for user:', userId);
+    console.log('🚀 Executing PPI operation on Railway');
     const response = await api.post('/v1/execute', {
       compiled_operation: compiledOperation,
       user_id: userId
     });
-    console.log('✅ PPI operation executed successfully');
+    console.log('✅ PPI operation executed successfully on Railway');
     return response.data;
   } catch (error) {
-    console.error('❌ PPI operation execution error:', error.response?.data || error.message);
-    throw new Error(error.response?.data?.error || 'Failed to execute PPI operation');
+    console.error('❌ PPI operation execution error on Railway:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.error || 'Failed to execute PPI operation on Railway');
   }
 };
 
 const quickExecutePPIURL = async (ppiUrl, userId) => {
   try {
-    console.log('⚡ Quick executing PPI URL:', ppiUrl);
+    console.log('⚡ Quick executing PPI URL on Railway');
     const response = await api.post('/v1/protocol/execute', {
       ppi_url: ppiUrl,
       user_id: userId
     });
-    console.log('✅ Quick PPI execution successful');
+    console.log('✅ Quick PPI execution successful on Railway');
     return response.data;
   } catch (error) {
-    console.error('❌ Quick PPI execution error:', error.response?.data || error.message);
-    throw new Error(error.response?.data?.error || 'Failed to quick execute PPI URL');
+    console.error('❌ Quick PPI execution error on Railway:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.error || 'Failed to quick execute PPI URL on Railway');
   }
 };
 
 const getPPIExamples = async () => {
   try {
     const response = await api.get('/v1/protocol/examples');
-    console.log('✅ PPI examples fetched');
+    console.log('✅ PPI examples fetched from Railway');
     return response.data;
   } catch (error) {
-    console.error('❌ PPI examples error:', error.response?.data || error.message);
-    throw new Error(error.response?.data?.error || 'Failed to fetch PPI examples');
+    console.error('❌ PPI examples error on Railway:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.error || 'Failed to fetch PPI examples from Railway');
   }
 };
 
-// ✅ PPI Operation Creation Methods
 const createPPISend = async (amount, to, message = '') => {
   try {
     const response = await api.post('/v1/ppi/send', {
@@ -326,23 +269,22 @@ const createPPISend = async (amount, to, message = '') => {
       message: message,
       target: 'casha-dag'
     });
-    console.log('✅ PPI Send operation created');
+    console.log('✅ PPI Send operation created on Railway');
     return response.data;
   } catch (error) {
-    console.error('❌ PPI Send creation error:', error.response?.data || error.message);
-    throw new Error(error.response?.data?.error || 'Failed to create PPI Send operation');
+    console.error('❌ PPI Send creation error on Railway:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.error || 'Failed to create PPI Send operation on Railway');
   }
 };
 
 // ✅ ENVIRONMENT INFO - Log on import
-console.log('🚀 Casha Wallet API Configuration:');
+console.log('🚀 Casha Wallet API Configuration for RAILWAY:');
 console.log('   Base URL:', api.defaults.baseURL);
-console.log('   Environment:', process.env.NODE_ENV || 'development');
-console.log('   Production URL:', API_BASE);
-console.log('   Development URL:', DEV_API_BASE);
-console.log('   EXPO_PUBLIC_API_URL:', process.env.EXPO_PUBLIC_API_URL || 'Not set');
+console.log('   Environment: PRODUCTION (Railway)');
+console.log('   Server:', API_BASE);
+console.log('   Timeout:', api.defaults.timeout, 'ms');
 
-// ✅ FIXED: CONSISTENT EXPORTS - BOTH NAMED AND DEFAULT
+// ✅ EXPORTS
 export const walletAPI = {
   checkConnection,
   registerUser,
@@ -364,13 +306,10 @@ export const walletAPI = {
   createPPISend
 };
 
-// Also export as default for flexibility
 export default walletAPI;
 
-// ✅ Auto-check connection on app start in development
-if (process.env.NODE_ENV !== 'production') {
-  setTimeout(async () => {
-    const connection = await checkConnection();
-    console.log('🔌 Initial Connection Check:', connection);
-  }, 1000);
-}
+// ✅ Auto-check connection on app start
+setTimeout(async () => {
+  const connection = await checkConnection();
+  console.log('🔌 Railway Connection Check:', connection);
+}, 1000);
